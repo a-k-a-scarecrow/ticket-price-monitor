@@ -1,9 +1,10 @@
 # Ticket Price Monitor
 
-Scans Ticketmaster and SeatGeek every hour for concerts on your watchlist
-and pings you on Discord the moment a price drops to (or below) what
-you're willing to pay. Runs entirely free on GitHub Actions — no server,
-no always-on computer.
+Scans Ticketmaster and SeatGeek every hour for concerts on your watchlist,
+tracks each one's current price, and pings you on Discord whenever that
+price changes — whether it's dropped to (or below) what you're willing to
+pay, or just moved. Runs entirely free on GitHub Actions — no server, no
+always-on computer.
 
 **StubHub is not automatically scanned.** Its search endpoints are
 protected by AWS WAF bot-detection (verified while building this — plain
@@ -21,13 +22,16 @@ tap.
    (`.github/workflows/ticket_monitor.yml`), pulling API keys from repo
    Secrets.
 3. The script queries the **Ticketmaster** and **SeatGeek** APIs for each
-   watchlist entry, and if any listing's price is at or under your max, it
-   posts to your **Discord webhook** with the site, price, ticket link, and
-   quantity available (when the API reports one).
-4. **`state.json`** remembers the last price it alerted you about per
-   (event, site), so you get pinged again only when the price actually
-   changes — not every hour it stays the same. The workflow commits this
-   file back to the repo after each run.
+   watchlist entry. Whenever a site's price differs from what it was last
+   scan — dropped, risen, or seen for the first time — it posts to your
+   **Discord webhook** with the site, current price, how it changed,
+   whether it's within your max, the ticket link, and quantity available
+   (when the API reports one).
+4. **`state.json`** remembers the last known price per (event, site), so
+   you're only re-notified when a price actually changes — not every hour
+   it stays the same. The workflow commits this file back to the repo
+   after each run, and the [web app](#web-app) reads it to show each
+   entry's current price live.
 
 ## Web app
 
@@ -39,6 +43,10 @@ phone or laptop browser without opening a terminal.
   (scoped to just this repo, Contents: read/write). The token is stored
   only in your browser and talks straight to GitHub's API — it's never
   sent anywhere else, including to me.
+- **Current price per entry**: each watchlist card shows the lowest price
+  found across sites on the last scan (e.g. "current $90 (Ticketmaster)"),
+  in green when it's at or under your max. Entries not scanned yet show
+  "no scan data yet."
 - **Browsing concerts by city**: if you don't know the exact artist,
   there's a "Browse Ticketmaster" search box that lists upcoming music
   events in a city, with an optional "When" filter (any time, a specific
@@ -160,7 +168,10 @@ picks it up automatically.
 - Matching is by artist keyword + city + exact date. If an artist plays
   multiple venues in the same city on the same day, you may get alerts for
   more than one.
-- Re-notification happens only when the alerting price changes for a given
-  (event, site) pair — you won't get spammed hourly for the same price.
+- Notifications fire on every price change, not just drops below your
+  max — you'll also hear about increases and about prices that are still
+  above your max, so you can watch the trend. Re-notification only happens
+  when the price actually changes for a given (event, site) pair — you
+  won't get spammed hourly for the same price.
 - GitHub Actions free tier includes 2,000 minutes/month for private repos;
   an hourly run that takes under a minute uses well under that.

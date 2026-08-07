@@ -1,12 +1,13 @@
-"""Entry point: scans every watchlist entry across sources and alerts on
-price drops below the configured max_price. Run hourly by GitHub Actions,
-or manually with `python -m ticket_monitor.main`.
+"""Entry point: scans every watchlist entry across sources, tracks each
+one's current price, and alerts on any price change. Run hourly by
+GitHub Actions, or manually with `python -m ticket_monitor.main`.
 """
 
 from __future__ import annotations
 
 import logging
 import sys
+from datetime import datetime, timezone
 
 from . import notify, state as state_module
 from .config import ConfigError, load_settings, load_watchlist
@@ -38,6 +39,7 @@ def run() -> int:
 
     state = state_module.load_state()
     state_changed = False
+    scan_time = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     for entry in watchlist:
         webhook_url = entry.discord_webhook_url or settings.discord_webhook_url
@@ -66,15 +68,12 @@ def run() -> int:
             logger.exception("StubHub lookup crashed for %s", entry.artist)
 
         for listing in listings:
-            if listing.price > entry.max_price:
-                continue
-
-            last_price = state_module.last_notified_price(state, entry.key, listing.site)
+            last_price = state_module.get_last_price(state, entry.key, listing.site)
             if last_price is not None and last_price == listing.price:
-                continue  # already alerted at this exact price, don't spam
+                continue  # no change since the last scan
 
-            notify.send_price_alert(entry, listing, webhook_url, stubhub.search_url(entry))
-            state_module.set_notified_price(state, entry.key, listing.site, listing.price)
+            notify.send_price_alert(entry, listing, webhook_url, stubhub.search_url(entry), previous_price=last_price)
+            state_module.set_price(state, entry.key, listing.site, listing, scan_time)
             state_changed = True
 
     if state_changed:

@@ -14,6 +14,7 @@
     --text-secondary: #6b6b66;
     --accent: #185fa5;
     --danger: #a32d2d;
+    --success: #0f6e56;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -24,6 +25,7 @@
       --text-secondary: #9a9a96;
       --accent: #85b7eb;
       --danger: #f09595;
+      --success: #5dcaa5;
     }
   }
   * { box-sizing: border-box; }
@@ -97,6 +99,8 @@
   }
   .card .artist { font-weight: 500; font-size: 15px; }
   .card .meta { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+  .card .current-price { font-weight: 500; }
+  .card .current-price.within-budget { color: var(--success); }
   .icon-btn {
     width: 34px;
     height: 34px;
@@ -303,6 +307,7 @@
   var REPO = "ticket-price-monitor";
   var BRANCH = "main";
   var PATH = "config/watchlist.yaml";
+  var STATE_PATH = "state.json";
   var TOKEN_KEY = "ticket_watchlist_gh_token";
 
   var YAML_HEADER =
@@ -321,6 +326,24 @@
 
   var currentSha = null;
   var currentEntries = [];
+  var currentPriceState = {};
+
+  function entryKey(entry) {
+    return (entry.artist + "|" + entry.city + "|" + entry.date).toLowerCase();
+  }
+
+  function bestCurrentPrice(entry) {
+    var record = currentPriceState[entryKey(entry)];
+    if (!record) return null;
+    var best = null;
+    Object.keys(record).forEach(function (site) {
+      var r = record[site];
+      if (r && typeof r.price === "number" && (best === null || r.price < best.price)) {
+        best = { price: r.price, currency: r.currency, site: site };
+      }
+    });
+    return best;
+  }
 
   function getToken() {
     return localStorage.getItem(TOKEN_KEY);
@@ -363,8 +386,7 @@
     };
   }
 
-  function fetchWatchlist() {
-    clearError();
+  function fetchWatchlistData() {
     var url = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/contents/" + PATH + "?ref=" + BRANCH;
     return fetch(url, { headers: apiHeaders() }).then(function (res) {
       if (res.status === 401) throw new Error("That token was rejected. Check it's valid and has Contents: Read and write on this repo.");
@@ -376,6 +398,36 @@
       var text = b64DecodeUnicode(data.content.replace(/\n/g, ""));
       var parsed = jsyaml.load(text);
       currentEntries = Array.isArray(parsed) ? parsed : [];
+    });
+  }
+
+  function fetchPriceStateData() {
+    // Best-effort: the current-price display is supplementary, so any
+    // failure here (missing file, bad token scope, parse error) just
+    // means "no price data yet" rather than blocking the watchlist view.
+    var url = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/contents/" + STATE_PATH + "?ref=" + BRANCH;
+    return fetch(url, { headers: apiHeaders() }).then(function (res) {
+      if (!res.ok) {
+        currentPriceState = {};
+        return null;
+      }
+      return res.json();
+    }).then(function (data) {
+      if (!data) return;
+      try {
+        var text = b64DecodeUnicode(data.content.replace(/\n/g, ""));
+        currentPriceState = JSON.parse(text) || {};
+      } catch (e) {
+        currentPriceState = {};
+      }
+    }).catch(function () {
+      currentPriceState = {};
+    });
+  }
+
+  function loadWatchlistAndState() {
+    clearError();
+    Promise.all([fetchWatchlistData(), fetchPriceStateData()]).then(function () {
       renderEntries();
     }).catch(function (err) {
       showError(err.message);
@@ -400,6 +452,19 @@
       var metaEl = document.createElement("div");
       metaEl.className = "meta";
       metaEl.textContent = entry.city + " · " + entry.date + " · max $" + entry.max_price;
+
+      var best = bestCurrentPrice(entry);
+      if (best) {
+        var priceEl = document.createElement("span");
+        priceEl.className = "current-price" + (best.price <= entry.max_price ? " within-budget" : "");
+        priceEl.textContent = " · current $" + Math.round(best.price) + " (" + best.site + ")";
+        metaEl.appendChild(priceEl);
+      } else {
+        var pendingEl = document.createElement("span");
+        pendingEl.textContent = " · no scan data yet";
+        metaEl.appendChild(pendingEl);
+      }
+
       info.appendChild(artistEl);
       info.appendChild(metaEl);
 
@@ -758,7 +823,7 @@
   function showMain() {
     authScreen.style.display = "none";
     mainScreen.style.display = "block";
-    fetchWatchlist();
+    loadWatchlistAndState();
   }
 
   var today = new Date().toISOString().slice(0, 10);
