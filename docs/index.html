@@ -195,6 +195,33 @@
     <div class="divider"></div>
 
     <section>
+      <p class="sub" style="margin-bottom:12px;">Don't know the artist yet? Browse what's playing in a city.</p>
+      <div class="row">
+        <div class="field">
+          <label for="tm-city">City</label>
+          <input type="text" id="tm-city" placeholder="Toronto" />
+        </div>
+        <div class="field">
+          <label for="tm-keyword">Narrow down (optional)</label>
+          <input type="text" id="tm-keyword" placeholder="rock, artist name..." />
+        </div>
+      </div>
+      <button id="tm-search-btn">Browse Ticketmaster</button>
+
+      <div id="tm-key-prompt" style="display:none; margin-top:14px;">
+        <p class="sub" style="margin-bottom:8px;">Paste a Ticketmaster API key to browse (free, instant at <a href="https://developer.ticketmaster.com/" target="_blank" rel="noopener">developer.ticketmaster.com</a>). Stored only in this browser, sent only to Ticketmaster.</p>
+        <div class="field">
+          <input type="password" id="tm-key-input" placeholder="Consumer key" autocomplete="off" />
+        </div>
+        <button class="primary" id="tm-key-save-btn">Save key</button>
+      </div>
+
+      <div id="tm-results" style="margin-top:14px;"></div>
+    </section>
+
+    <div class="divider"></div>
+
+    <section>
       <div class="row">
         <div class="field">
           <label for="f-artist">Artist</label>
@@ -409,6 +436,112 @@
       showError(err.message);
     });
   }
+
+  var TM_KEY_STORAGE = "ticket_watchlist_tm_key";
+
+  function getTmKey() {
+    return localStorage.getItem(TM_KEY_STORAGE);
+  }
+
+  function renderSearchResults(results) {
+    var container = document.getElementById("tm-results");
+    container.innerHTML = "";
+    if (results.length === 0) {
+      var empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "No upcoming music events found.";
+      container.appendChild(empty);
+      return;
+    }
+    results.forEach(function (r) {
+      var card = document.createElement("div");
+      card.className = "card";
+
+      var info = document.createElement("div");
+      var artistEl = document.createElement("div");
+      artistEl.className = "artist";
+      artistEl.textContent = r.artist;
+      var metaEl = document.createElement("div");
+      metaEl.className = "meta";
+      var priceText = r.minPrice != null ? (" · from $" + Math.ceil(r.minPrice)) : "";
+      metaEl.textContent = r.venue + ", " + r.city + " · " + r.date + priceText;
+      info.appendChild(artistEl);
+      info.appendChild(metaEl);
+
+      var useBtn = document.createElement("button");
+      useBtn.textContent = "Use";
+      useBtn.addEventListener("click", function () { useSearchResult(r); });
+
+      card.appendChild(info);
+      card.appendChild(useBtn);
+      container.appendChild(card);
+    });
+  }
+
+  function useSearchResult(r) {
+    document.getElementById("f-artist").value = r.artist;
+    document.getElementById("f-city").value = r.city;
+    document.getElementById("f-date").value = r.date;
+    if (r.minPrice != null) {
+      document.getElementById("f-price").value = Math.ceil(r.minPrice);
+    }
+    document.getElementById("f-price").scrollIntoView({ behavior: "smooth", block: "center" });
+    showStatus("Filled in from " + r.artist + " — set your max price and add");
+  }
+
+  function searchTicketmaster() {
+    clearError();
+    var city = document.getElementById("tm-city").value.trim();
+    if (!city) {
+      showError("Enter a city to browse.");
+      return;
+    }
+    var key = getTmKey();
+    if (!key) {
+      document.getElementById("tm-key-prompt").style.display = "block";
+      return;
+    }
+    var keyword = document.getElementById("tm-keyword").value.trim();
+    var url = "https://app.ticketmaster.com/discovery/v2/events.json?apikey=" + encodeURIComponent(key) +
+      "&city=" + encodeURIComponent(city) +
+      "&classificationName=music&sort=date,asc&size=20" +
+      (keyword ? "&keyword=" + encodeURIComponent(keyword) : "");
+
+    document.getElementById("tm-results").innerHTML = '<div class="empty">Searching…</div>';
+
+    fetch(url).then(function (res) {
+      if (res.status === 401) throw new Error("Ticketmaster rejected that API key. Check it and try again.");
+      if (!res.ok) throw new Error("Ticketmaster API error (" + res.status + ").");
+      return res.json();
+    }).then(function (data) {
+      var events = (data._embedded && data._embedded.events) || [];
+      var results = events.map(function (event) {
+        var attractions = (event._embedded && event._embedded.attractions) || [];
+        var artist = attractions.length ? attractions[0].name : (event.name || "Unknown artist");
+        var venues = (event._embedded && event._embedded.venues) || [];
+        var venue = venues.length ? venues[0].name : "Unknown venue";
+        var date = (event.dates && event.dates.start && event.dates.start.localDate) || "Unknown date";
+        var priceRanges = event.priceRanges || [];
+        var prices = priceRanges.map(function (p) { return p.min; }).filter(function (v) { return v != null; });
+        var minPrice = prices.length ? Math.min.apply(null, prices) : null;
+        return { artist: artist, venue: venue, city: city, date: date, minPrice: minPrice };
+      });
+      renderSearchResults(results);
+    }).catch(function (err) {
+      document.getElementById("tm-results").innerHTML = "";
+      showError(err.message);
+    });
+  }
+
+  document.getElementById("tm-search-btn").addEventListener("click", searchTicketmaster);
+
+  document.getElementById("tm-key-save-btn").addEventListener("click", function () {
+    var key = document.getElementById("tm-key-input").value.trim();
+    if (!key) return;
+    localStorage.setItem(TM_KEY_STORAGE, key);
+    document.getElementById("tm-key-prompt").style.display = "none";
+    searchTicketmaster();
+  });
 
   document.getElementById("add-btn").addEventListener("click", addEntry);
 

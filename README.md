@@ -15,7 +15,8 @@ tap.
 ## How it works
 
 1. **`config/watchlist.yaml`** — you list the concerts you care about:
-   artist, city, date, and your max price.
+   artist, city, date, and your max price. Edit this by hand, through the
+   [web app](#web-app), or by asking Claude.
 2. **GitHub Actions** runs `python -m ticket_monitor.main` every hour
    (`.github/workflows/ticket_monitor.yml`), pulling API keys from repo
    Secrets.
@@ -27,6 +28,37 @@ tap.
    (event, site), so you get pinged again only when the price actually
    changes — not every hour it stays the same. The workflow commits this
    file back to the repo after each run.
+
+## Web app
+
+A standalone page at **docs/index.html**, served free via GitHub Pages, so
+you (and anyone you share a token with) can manage the watchlist from a
+phone or laptop browser without opening a terminal.
+
+- **Editing the watchlist**: sign in with a GitHub personal access token
+  (scoped to just this repo, Contents: read/write). The token is stored
+  only in your browser and talks straight to GitHub's API — it's never
+  sent anywhere else, including to me.
+- **Browsing concerts by city**: if you don't know the exact artist,
+  there's a "Browse Ticketmaster" search box that lists upcoming music
+  events in a city. Paste a Ticketmaster API key (same free signup as
+  below) once, also stored only in your browser, and pick a result to
+  pre-fill the add-to-watchlist form.
+- Because the repo is public (see setup step 4), the page itself is
+  reachable by anyone with the URL — but it's useless without a valid
+  token, and no secrets are embedded in the page.
+
+## Browsing by city from the terminal
+
+If you'd rather search from the command line than the web app:
+
+```bash
+PYTHONPATH=src python -m ticket_monitor.search --city "Toronto"
+PYTHONPATH=src python -m ticket_monitor.search --city "Toronto" --keyword "rock"
+```
+
+Prints upcoming music events in that city (artist, venue, date, price
+range, ticket link) using your `TICKETMASTER_API_KEY`.
 
 ## One-time setup
 
@@ -56,13 +88,18 @@ From inside `ticket-price-monitor/`:
 git init
 git add .
 git commit -m "Initial commit: ticket price monitor"
-gh repo create ticket-price-monitor --private --source=. --remote=origin --push
+gh repo create ticket-price-monitor --public --source=. --remote=origin --push
 ```
 
 (Or create the repo manually on GitHub and `git remote add origin <url>`
-then `git push -u origin main`.) **Make it a private repo** — your
-watchlist doesn't need to be public, and this keeps the Actions bot's
-commits out of view of anyone else.
+then `git push -u origin main`.) The repo needs to be **public** for the
+free web app: GitHub Pages on a personal (non-Pro) account only serves
+from public repos. Nothing sensitive lives in the code — API keys and the
+Discord webhook are stored as encrypted GitHub Secrets, which stay hidden
+even in a public repo's Actions logs. If you'd rather keep the repo
+private, skip the web app and either use `search.py` + editing the YAML
+directly, or host `docs/index.html` on a separate free static host
+(Cloudflare Pages, Netlify) that supports deploying from private repos.
 
 ### 5. Add your secrets to GitHub
 In the GitHub repo: **Settings → Secrets and variables → Actions → New
