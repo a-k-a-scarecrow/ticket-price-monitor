@@ -1,0 +1,20 @@
+# Ticket Price Monitor — watchlist
+#
+# One entry per concert you want tracked. Every field is required unless
+# noted otherwise. Dates use YYYY-MM-DD. Add or remove entries any time —
+# the next scheduled run (hourly) will pick up your changes.
+#
+# discord_webhook_url is optional per-entry: if omitted, the monitor falls
+# back to the DISCORD_WEBHOOK_URL environment variable / GitHub secret, so
+# most people only need to set that once and can leave this out entirely.
+
+- artist: "Chappell Roan"
+  city: "Los Angeles"
+  date: "2026-09-12"
+  max_price: 150.00
+  # discord_webhook_url: "https://discord.com/api/webhooks/..."   # optional override
+
+# - artist: "Another Artist"
+#   city: "New York"
+#   date: "2026-10-01"
+#   max_price: 200.00
