@@ -14,6 +14,11 @@
   max_price: 150.00
   # discord_webhook_url: "https://discord.com/api/webhooks/..."   # optional override
 
+- artist: "AC/DC"
+  city: "Toronto"
+  date: "2026-09-16"
+  max_price: 100.00
+
 # - artist: "Another Artist"
 #   city: "New York"
 #   date: "2026-10-01"
