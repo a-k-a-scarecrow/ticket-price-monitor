@@ -42,11 +42,12 @@ phone or laptop browser without opening a terminal.
 - **Browsing concerts by city**: if you don't know the exact artist,
   there's a "Browse Ticketmaster" search box that lists upcoming music
   events in a city, with an optional "When" filter (any time, a specific
-  month, or a specific date). Results fetch 200 at a time (Ticketmaster's
-  max page size); a "Load more" button appears if a city/month has more
-  than that. Paste a Ticketmaster API key (same free signup as below)
-  once, also stored only in your browser, and pick a result to pre-fill
-  the add-to-watchlist form.
+  month, or a specific date). Results show 20 per page with a numbered
+  pager (Prev / 1 2 3 / Next) — behind the scenes it fetches 200 at a
+  time from Ticketmaster (its max page size) and only fetches more once
+  you page past what's already loaded. Paste a Ticketmaster API key
+  (same free signup as below) once, also stored only in your browser,
+  and pick a result to pre-fill the add-to-watchlist form.
 - Because the repo is public (see setup step 4), the page itself is
   reachable by anyone with the URL — but it's useless without a valid
   token, and no secrets are embedded in the page.

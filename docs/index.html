@@ -108,6 +108,34 @@
     background: none;
   }
   .icon-btn:hover { border-color: var(--danger); color: var(--danger); }
+  #tm-pager { align-items: center; gap: 14px; }
+  #tm-pager button {
+    border: none;
+    background: none;
+    padding: 0;
+    min-width: auto;
+    font-size: 14px;
+    color: var(--text-secondary);
+  }
+  #tm-pager button:hover { border-color: transparent; color: var(--text); }
+  #tm-pager button.tm-page-current {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--text);
+    color: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 500;
+  }
+  #tm-pager button.tm-page-current:hover { color: var(--bg); }
+  #tm-pager button.tm-page-next, #tm-pager button.tm-page-prev {
+    color: var(--text);
+    font-weight: 500;
+  }
+  #tm-pager button:disabled { opacity: 0.35; cursor: default; }
+  #tm-pager button:disabled:hover { color: var(--text-secondary); }
   .empty {
     color: var(--text-secondary);
     font-size: 14px;
@@ -235,7 +263,7 @@
       </div>
 
       <div id="tm-results" style="margin-top:14px;"></div>
-      <button id="tm-load-more-btn" style="display:none; margin-top:4px;">Load more</button>
+      <div id="tm-pager" style="display:none; flex-wrap:wrap; gap:6px; margin-top:12px;"></div>
     </section>
 
     <div class="divider"></div>
@@ -484,20 +512,19 @@
   });
 
   var tmSearchState = null;
+  var TM_PAGE_SIZE = 20;
 
-  function renderSearchResults(results, hasMore) {
+  function renderResultCards(pageResults) {
     var container = document.getElementById("tm-results");
-    var loadMoreBtn = document.getElementById("tm-load-more-btn");
     container.innerHTML = "";
-    if (results.length === 0) {
+    if (pageResults.length === 0) {
       var empty = document.createElement("div");
       empty.className = "empty";
       empty.textContent = "No upcoming music events found.";
       container.appendChild(empty);
-      loadMoreBtn.style.display = "none";
       return;
     }
-    results.forEach(function (r) {
+    pageResults.forEach(function (r) {
       var card = document.createElement("div");
       card.className = "card";
 
@@ -520,8 +547,63 @@
       card.appendChild(useBtn);
       container.appendChild(card);
     });
-    loadMoreBtn.style.display = hasMore ? "block" : "none";
-    loadMoreBtn.disabled = false;
+  }
+
+  function goToPage(state, pageIndex) {
+    if (pageIndex < 0) return;
+    var maxLoadedPage = Math.ceil(state.results.length / TM_PAGE_SIZE) - 1;
+    if (pageIndex > maxLoadedPage) {
+      if (state.apiHasMore) fetchTmPage(true, pageIndex);
+      return;
+    }
+    state.uiPage = pageIndex;
+    showCurrentPage(state);
+  }
+
+  function renderPager(state) {
+    var pager = document.getElementById("tm-pager");
+    pager.innerHTML = "";
+    var totalPages = Math.ceil(state.results.length / TM_PAGE_SIZE);
+    if (totalPages <= 1 && !state.apiHasMore) {
+      pager.style.display = "none";
+      return;
+    }
+    pager.style.display = "flex";
+
+    var prevBtn = document.createElement("button");
+    prevBtn.className = "tm-page-prev";
+    prevBtn.innerHTML = "&lsaquo; Prev";
+    prevBtn.disabled = state.uiPage === 0;
+    prevBtn.addEventListener("click", function () { goToPage(state, state.uiPage - 1); });
+    pager.appendChild(prevBtn);
+
+    for (var i = 0; i < totalPages; i++) {
+      (function (pageIndex) {
+        var btn = document.createElement("button");
+        btn.textContent = String(pageIndex + 1);
+        btn.setAttribute("aria-label", "Page " + (pageIndex + 1));
+        if (pageIndex === state.uiPage) {
+          btn.className = "tm-page-current";
+          btn.setAttribute("aria-current", "true");
+        }
+        btn.addEventListener("click", function () { goToPage(state, pageIndex); });
+        pager.appendChild(btn);
+      })(i);
+    }
+
+    var hasNext = state.uiPage < totalPages - 1 || state.apiHasMore;
+    var nextBtn = document.createElement("button");
+    nextBtn.className = "tm-page-next";
+    nextBtn.innerHTML = "Next &rsaquo;";
+    nextBtn.disabled = !hasNext;
+    nextBtn.addEventListener("click", function () { goToPage(state, state.uiPage + 1); });
+    pager.appendChild(nextBtn);
+  }
+
+  function showCurrentPage(state) {
+    var start = state.uiPage * TM_PAGE_SIZE;
+    renderResultCards(state.results.slice(start, start + TM_PAGE_SIZE));
+    renderPager(state);
   }
 
   function useSearchResult(r) {
@@ -550,19 +632,19 @@
     });
   }
 
-  function fetchTmPage(append) {
+  function fetchTmPage(append, jumpToUiPage) {
     var state = tmSearchState;
     var key = getTmKey();
     var url = "https://app.ticketmaster.com/discovery/v2/events.json?apikey=" + encodeURIComponent(key) +
       "&city=" + encodeURIComponent(state.city) +
-      "&classificationName=music&sort=date,asc&size=200&page=" + state.page +
+      "&classificationName=music&sort=date,asc&size=200&page=" + state.apiPage +
       (state.keyword ? "&keyword=" + encodeURIComponent(state.keyword) : "") +
       (state.startDate ? "&startDateTime=" + state.startDate + "T00:00:00Z" : "") +
       (state.endDate ? "&endDateTime=" + state.endDate + "T23:59:59Z" : "");
 
-    document.getElementById("tm-load-more-btn").disabled = true;
     if (!append) {
       document.getElementById("tm-results").innerHTML = '<div class="empty">Searching…</div>';
+      document.getElementById("tm-pager").style.display = "none";
     }
 
     fetch(url).then(function (res) {
@@ -571,7 +653,7 @@
       return res.json();
     }).then(function (data) {
       var pageInfo = data.page || {};
-      var hasMore = ((pageInfo.number || 0) + 1) < (pageInfo.totalPages || 0);
+      var apiHasMore = ((pageInfo.number || 0) + 1) < (pageInfo.totalPages || 0);
       var results = parseTmEvents(data, state.city);
 
       if (state.startDate || state.endDate) {
@@ -581,7 +663,7 @@
         if (state.endDate && results.length) {
           var lastDate = results[results.length - 1].date;
           if (lastDate !== "Unknown date" && lastDate > state.endDate) {
-            hasMore = false;
+            apiHasMore = false;
           }
         }
         // Ticketmaster's date filter is loose: multi-date listings (season
@@ -595,12 +677,12 @@
       }
 
       state.results = append ? state.results.concat(results) : results;
-      state.hasMore = hasMore;
-      state.page += 1;
-      renderSearchResults(state.results, hasMore);
+      state.apiHasMore = apiHasMore;
+      state.apiPage += 1;
+      state.uiPage = jumpToUiPage !== undefined ? jumpToUiPage : 0;
+      showCurrentPage(state);
     }).catch(function (err) {
       if (!append) document.getElementById("tm-results").innerHTML = "";
-      document.getElementById("tm-load-more-btn").disabled = false;
       showError(err.message);
     });
   }
@@ -640,13 +722,9 @@
       startDate = endDate = dateValue;
     }
 
-    tmSearchState = { city: city, keyword: keyword, startDate: startDate, endDate: endDate, page: 0, results: [] };
+    tmSearchState = { city: city, keyword: keyword, startDate: startDate, endDate: endDate, apiPage: 0, uiPage: 0, results: [], apiHasMore: false };
     fetchTmPage(false);
   }
-
-  document.getElementById("tm-load-more-btn").addEventListener("click", function () {
-    fetchTmPage(true);
-  });
 
   document.getElementById("tm-search-btn").addEventListener("click", searchTicketmaster);
 
