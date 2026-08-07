@@ -42,9 +42,11 @@ phone or laptop browser without opening a terminal.
 - **Browsing concerts by city**: if you don't know the exact artist,
   there's a "Browse Ticketmaster" search box that lists upcoming music
   events in a city, with an optional "When" filter (any time, a specific
-  month, or a specific date). Paste a Ticketmaster API key (same free
-  signup as below) once, also stored only in your browser, and pick a
-  result to pre-fill the add-to-watchlist form.
+  month, or a specific date). Results fetch 200 at a time (Ticketmaster's
+  max page size); a "Load more" button appears if a city/month has more
+  than that. Paste a Ticketmaster API key (same free signup as below)
+  once, also stored only in your browser, and pick a result to pre-fill
+  the add-to-watchlist form.
 - Because the repo is public (see setup step 4), the page itself is
   reachable by anyone with the URL — but it's useless without a valid
   token, and no secrets are embedded in the page.
@@ -63,7 +65,9 @@ PYTHONPATH=src python -m ticket_monitor.search --city "Toronto" --date 2026-09-1
 Prints upcoming music events in that city (artist, venue, date, price
 range, ticket link) using your `TICKETMASTER_API_KEY`. `--month` and
 `--date` are optional and mutually exclusive; omit both to just see the
-soonest upcoming shows.
+soonest upcoming shows. Results are capped at 200 per call (Ticketmaster's
+max page size) — if a city/month has more, the output tells you to rerun
+with `--page 1`, `--page 2`, etc.
 
 ## One-time setup
 

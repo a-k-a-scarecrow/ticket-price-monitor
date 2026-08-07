@@ -41,7 +41,8 @@ def run(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Browse upcoming concerts in a city via Ticketmaster")
     parser.add_argument("--city", required=True, help='e.g. "Toronto"')
     parser.add_argument("--keyword", help="optional extra filter, e.g. a genre or partial artist name")
-    parser.add_argument("--size", type=int, default=20, help="max results (default 20)")
+    parser.add_argument("--size", type=int, default=200, help="results per page (default 200, Ticketmaster's max)")
+    parser.add_argument("--page", type=int, default=0, help="page number, if a search has more results than fit on one page (default 0)")
     date_group = parser.add_mutually_exclusive_group()
     date_group.add_argument("--month", help="restrict to one month, YYYY-MM (e.g. 2026-09)")
     date_group.add_argument("--date", help="restrict to one day, YYYY-MM-DD")
@@ -59,11 +60,12 @@ def run(argv: list[str] | None = None) -> int:
         start_date = end_date = args.date
 
     try:
-        results = search_events(
+        results, has_more = search_events(
             args.city,
             settings.ticketmaster_api_key,
             keyword=args.keyword,
             size=args.size,
+            page=args.page,
             start_date=start_date,
             end_date=end_date,
         )
@@ -72,13 +74,16 @@ def run(argv: list[str] | None = None) -> int:
         return 1
 
     if not results:
-        print(f"No upcoming music events found in {args.city}.")
+        print(f"No upcoming music events found in {args.city} (page {args.page}).")
         return 0
 
     for r in results:
         price = format_price(r.min_price, r.max_price, r.currency)
         print(f"{r.date}  {r.artist}  —  {r.venue}, {r.city}  ({price})")
         print(f"    {r.url}")
+
+    if has_more:
+        print(f"\nMore results available — rerun with --page {args.page + 1} to see the next page.")
 
     return 0
 

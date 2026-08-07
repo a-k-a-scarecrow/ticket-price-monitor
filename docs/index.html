@@ -235,6 +235,7 @@
       </div>
 
       <div id="tm-results" style="margin-top:14px;"></div>
+      <button id="tm-load-more-btn" style="display:none; margin-top:4px;">Load more</button>
     </section>
 
     <div class="divider"></div>
@@ -482,14 +483,18 @@
     document.getElementById("tm-date-field").style.display = mode === "date" ? "block" : "none";
   });
 
-  function renderSearchResults(results) {
+  var tmSearchState = null;
+
+  function renderSearchResults(results, hasMore) {
     var container = document.getElementById("tm-results");
+    var loadMoreBtn = document.getElementById("tm-load-more-btn");
     container.innerHTML = "";
     if (results.length === 0) {
       var empty = document.createElement("div");
       empty.className = "empty";
       empty.textContent = "No upcoming music events found.";
       container.appendChild(empty);
+      loadMoreBtn.style.display = "none";
       return;
     }
     results.forEach(function (r) {
@@ -515,6 +520,8 @@
       card.appendChild(useBtn);
       container.appendChild(card);
     });
+    loadMoreBtn.style.display = hasMore ? "block" : "none";
+    loadMoreBtn.disabled = false;
   }
 
   function useSearchResult(r) {
@@ -526,6 +533,76 @@
     }
     document.getElementById("f-price").scrollIntoView({ behavior: "smooth", block: "center" });
     showStatus("Filled in from " + r.artist + " — set your max price and add");
+  }
+
+  function parseTmEvents(data, city) {
+    var events = (data._embedded && data._embedded.events) || [];
+    return events.map(function (event) {
+      var attractions = (event._embedded && event._embedded.attractions) || [];
+      var artist = attractions.length ? attractions[0].name : (event.name || "Unknown artist");
+      var venues = (event._embedded && event._embedded.venues) || [];
+      var venue = venues.length ? venues[0].name : "Unknown venue";
+      var date = (event.dates && event.dates.start && event.dates.start.localDate) || "Unknown date";
+      var priceRanges = event.priceRanges || [];
+      var prices = priceRanges.map(function (p) { return p.min; }).filter(function (v) { return v != null; });
+      var minPrice = prices.length ? Math.min.apply(null, prices) : null;
+      return { artist: artist, venue: venue, city: city, date: date, minPrice: minPrice };
+    });
+  }
+
+  function fetchTmPage(append) {
+    var state = tmSearchState;
+    var key = getTmKey();
+    var url = "https://app.ticketmaster.com/discovery/v2/events.json?apikey=" + encodeURIComponent(key) +
+      "&city=" + encodeURIComponent(state.city) +
+      "&classificationName=music&sort=date,asc&size=200&page=" + state.page +
+      (state.keyword ? "&keyword=" + encodeURIComponent(state.keyword) : "") +
+      (state.startDate ? "&startDateTime=" + state.startDate + "T00:00:00Z" : "") +
+      (state.endDate ? "&endDateTime=" + state.endDate + "T23:59:59Z" : "");
+
+    document.getElementById("tm-load-more-btn").disabled = true;
+    if (!append) {
+      document.getElementById("tm-results").innerHTML = '<div class="empty">Searching…</div>';
+    }
+
+    fetch(url).then(function (res) {
+      if (res.status === 401) throw new Error("Ticketmaster rejected that API key. Check it and try again.");
+      if (!res.ok) throw new Error("Ticketmaster API error (" + res.status + ").");
+      return res.json();
+    }).then(function (data) {
+      var pageInfo = data.page || {};
+      var hasMore = ((pageInfo.number || 0) + 1) < (pageInfo.totalPages || 0);
+      var results = parseTmEvents(data, state.city);
+
+      if (state.startDate || state.endDate) {
+        // Results are sorted ascending by date. If this page's last event is
+        // already past endDate, later pages only have later dates too —
+        // nothing more to find for this range, regardless of raw page count.
+        if (state.endDate && results.length) {
+          var lastDate = results[results.length - 1].date;
+          if (lastDate !== "Unknown date" && lastDate > state.endDate) {
+            hasMore = false;
+          }
+        }
+        // Ticketmaster's date filter is loose: multi-date listings (season
+        // passes, recurring classes) get included if their overall range
+        // merely overlaps the window. Filter client-side to match strictly.
+        results = results.filter(function (r) {
+          return r.date !== "Unknown date" &&
+            (!state.startDate || r.date >= state.startDate) &&
+            (!state.endDate || r.date <= state.endDate);
+        });
+      }
+
+      state.results = append ? state.results.concat(results) : results;
+      state.hasMore = hasMore;
+      state.page += 1;
+      renderSearchResults(state.results, hasMore);
+    }).catch(function (err) {
+      if (!append) document.getElementById("tm-results").innerHTML = "";
+      document.getElementById("tm-load-more-btn").disabled = false;
+      showError(err.message);
+    });
   }
 
   function searchTicketmaster() {
@@ -563,50 +640,13 @@
       startDate = endDate = dateValue;
     }
 
-    var url = "https://app.ticketmaster.com/discovery/v2/events.json?apikey=" + encodeURIComponent(key) +
-      "&city=" + encodeURIComponent(city) +
-      "&classificationName=music&sort=date,asc&size=20" +
-      (keyword ? "&keyword=" + encodeURIComponent(keyword) : "") +
-      (startDate ? "&startDateTime=" + startDate + "T00:00:00Z" : "") +
-      (endDate ? "&endDateTime=" + endDate + "T23:59:59Z" : "");
-
-    document.getElementById("tm-results").innerHTML = '<div class="empty">Searching…</div>';
-
-    fetch(url).then(function (res) {
-      if (res.status === 401) throw new Error("Ticketmaster rejected that API key. Check it and try again.");
-      if (!res.ok) throw new Error("Ticketmaster API error (" + res.status + ").");
-      return res.json();
-    }).then(function (data) {
-      var events = (data._embedded && data._embedded.events) || [];
-      var results = events.map(function (event) {
-        var attractions = (event._embedded && event._embedded.attractions) || [];
-        var artist = attractions.length ? attractions[0].name : (event.name || "Unknown artist");
-        var venues = (event._embedded && event._embedded.venues) || [];
-        var venue = venues.length ? venues[0].name : "Unknown venue";
-        var date = (event.dates && event.dates.start && event.dates.start.localDate) || "Unknown date";
-        var priceRanges = event.priceRanges || [];
-        var prices = priceRanges.map(function (p) { return p.min; }).filter(function (v) { return v != null; });
-        var minPrice = prices.length ? Math.min.apply(null, prices) : null;
-        return { artist: artist, venue: venue, city: city, date: date, minPrice: minPrice };
-      });
-
-      if (startDate || endDate) {
-        // Ticketmaster's date filter is loose: multi-date listings (season
-        // passes, recurring classes) get included if their overall range
-        // merely overlaps the window. Filter client-side to match strictly.
-        results = results.filter(function (r) {
-          return r.date !== "Unknown date" &&
-            (!startDate || r.date >= startDate) &&
-            (!endDate || r.date <= endDate);
-        });
-      }
-
-      renderSearchResults(results);
-    }).catch(function (err) {
-      document.getElementById("tm-results").innerHTML = "";
-      showError(err.message);
-    });
+    tmSearchState = { city: city, keyword: keyword, startDate: startDate, endDate: endDate, page: 0, results: [] };
+    fetchTmPage(false);
   }
+
+  document.getElementById("tm-load-more-btn").addEventListener("click", function () {
+    fetchTmPage(true);
+  });
 
   document.getElementById("tm-search-btn").addEventListener("click", searchTicketmaster);
 

@@ -73,14 +73,19 @@ def search_events(
     city: str,
     api_key: str,
     keyword: str | None = None,
-    size: int = 20,
+    size: int = 200,
+    page: int = 0,
     start_date: str | None = None,
     end_date: str | None = None,
-) -> list[EventSummary]:
+) -> tuple[list[EventSummary], bool]:
     """Browse upcoming music events in a city, without knowing the artist.
 
     start_date/end_date (YYYY-MM-DD, inclusive) narrow results to a specific
     day or month; omit both to just get the soonest upcoming events.
+
+    Ticketmaster paginates (200 is its max page size), so a single call may
+    not cover an entire month for a busy city. Returns (events, has_more) —
+    call again with page+1 when has_more is True to get the rest.
 
     Used by the CLI search command and (indirectly, via a user-supplied key
     in the browser) the web app's "Browse concerts" feature.
@@ -91,6 +96,7 @@ def search_events(
         "classificationName": "music",
         "sort": "date,asc",
         "size": size,
+        "page": page,
     }
     if keyword:
         params["keyword"] = keyword
@@ -104,6 +110,9 @@ def search_events(
 
     data = resp.json()
     events = data.get("_embedded", {}).get("events", [])
+
+    page_info = data.get("page", {})
+    has_more = (page_info.get("number", 0) + 1) < page_info.get("totalPages", 0)
 
     results: list[EventSummary] = []
     for event in events:
@@ -135,6 +144,13 @@ def search_events(
         )
 
     if start_date or end_date:
+        # Results are sorted ascending by date. If this page's last event is
+        # already past end_date, every later page only has later dates too —
+        # nothing more to find for this range, regardless of how many raw
+        # pages Ticketmaster reports.
+        if end_date and results and results[-1].date != "Unknown date" and results[-1].date > end_date:
+            has_more = False
+
         # Ticketmaster's date filter is loose: multi-date listings (season
         # passes, recurring classes) get included if their overall range
         # merely overlaps the window, not just events strictly inside it.
@@ -146,4 +162,4 @@ def search_events(
             and (not end_date or r.date <= end_date)
         ]
 
-    return results
+    return results, has_more
