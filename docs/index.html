@@ -257,9 +257,10 @@
         </div>
       </div>
       <button id="tm-search-btn">Browse Ticketmaster</button>
+      <button class="link-btn" id="tm-key-change-btn" style="display:none; margin-left:8px;">Change key</button>
 
       <div id="tm-key-prompt" style="display:none; margin-top:14px;">
-        <p class="sub" style="margin-bottom:8px;">Paste a Ticketmaster API key to browse (free, instant at <a href="https://developer.ticketmaster.com/" target="_blank" rel="noopener">developer.ticketmaster.com</a>). Stored only in this browser, sent only to Ticketmaster.</p>
+        <p class="sub" id="tm-key-prompt-text" style="margin-bottom:8px;">Paste a Ticketmaster API key to browse (free, instant at <a href="https://developer.ticketmaster.com/" target="_blank" rel="noopener">developer.ticketmaster.com</a>). Stored only in this browser, sent only to Ticketmaster.</p>
         <div class="field">
           <input type="password" id="tm-key-input" placeholder="Consumer key" autocomplete="off" />
         </div>
@@ -555,6 +556,17 @@
     return localStorage.getItem(TM_KEY_STORAGE);
   }
 
+  function showTmKeyPrompt(message) {
+    if (message) document.getElementById("tm-key-prompt-text").textContent = message;
+    document.getElementById("tm-key-prompt").style.display = "block";
+    document.getElementById("tm-key-change-btn").style.display = "none";
+  }
+
+  function hideTmKeyPrompt() {
+    document.getElementById("tm-key-prompt").style.display = "none";
+    document.getElementById("tm-key-change-btn").style.display = getTmKey() ? "inline" : "none";
+  }
+
   function pad2(n) {
     return n < 10 ? "0" + n : "" + n;
   }
@@ -713,7 +725,11 @@
     }
 
     fetch(url).then(function (res) {
-      if (res.status === 401) throw new Error("Ticketmaster rejected that API key. Check it and try again.");
+      if (res.status === 401) {
+        var authErr = new Error("Ticketmaster rejected that API key.");
+        authErr.tmAuthError = true;
+        throw authErr;
+      }
       if (!res.ok) throw new Error("Ticketmaster API error (" + res.status + ").");
       return res.json();
     }).then(function (data) {
@@ -748,7 +764,12 @@
       showCurrentPage(state);
     }).catch(function (err) {
       if (!append) document.getElementById("tm-results").innerHTML = "";
-      showError(err.message);
+      if (err.tmAuthError) {
+        localStorage.removeItem(TM_KEY_STORAGE);
+        showTmKeyPrompt("That key was rejected. Enter a new one — the old one has been cleared.");
+      } else {
+        showError(err.message);
+      }
     });
   }
 
@@ -761,7 +782,7 @@
     }
     var key = getTmKey();
     if (!key) {
-      document.getElementById("tm-key-prompt").style.display = "block";
+      showTmKeyPrompt();
       return;
     }
     var keyword = document.getElementById("tm-keyword").value.trim();
@@ -797,8 +818,13 @@
     var key = document.getElementById("tm-key-input").value.trim();
     if (!key) return;
     localStorage.setItem(TM_KEY_STORAGE, key);
-    document.getElementById("tm-key-prompt").style.display = "none";
+    document.getElementById("tm-key-input").value = "";
+    hideTmKeyPrompt();
     searchTicketmaster();
+  });
+
+  document.getElementById("tm-key-change-btn").addEventListener("click", function () {
+    showTmKeyPrompt("Paste a new Ticketmaster API key. Stored only in this browser, sent only to Ticketmaster.");
   });
 
   document.getElementById("add-btn").addEventListener("click", addEntry);
@@ -830,6 +856,7 @@
   document.getElementById("f-date").min = today;
   document.getElementById("tm-date").min = today;
   document.getElementById("tm-month").min = today.slice(0, 7);
+  document.getElementById("tm-key-change-btn").style.display = getTmKey() ? "inline" : "none";
 
   if (getToken()) {
     showMain();
