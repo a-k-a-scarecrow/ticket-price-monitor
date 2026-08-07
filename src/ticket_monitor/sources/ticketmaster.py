@@ -69,8 +69,18 @@ def fetch_listings(entry: WatchEntry, settings: Settings) -> list[Listing]:
     return listings
 
 
-def search_events(city: str, api_key: str, keyword: str | None = None, size: int = 20) -> list[EventSummary]:
+def search_events(
+    city: str,
+    api_key: str,
+    keyword: str | None = None,
+    size: int = 20,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> list[EventSummary]:
     """Browse upcoming music events in a city, without knowing the artist.
+
+    start_date/end_date (YYYY-MM-DD, inclusive) narrow results to a specific
+    day or month; omit both to just get the soonest upcoming events.
 
     Used by the CLI search command and (indirectly, via a user-supplied key
     in the browser) the web app's "Browse concerts" feature.
@@ -84,6 +94,10 @@ def search_events(city: str, api_key: str, keyword: str | None = None, size: int
     }
     if keyword:
         params["keyword"] = keyword
+    if start_date:
+        params["startDateTime"] = f"{start_date}T00:00:00Z"
+    if end_date:
+        params["endDateTime"] = f"{end_date}T23:59:59Z"
 
     resp = requests.get(BASE_URL, params=params, timeout=TIMEOUT_SECONDS)
     resp.raise_for_status()
@@ -119,5 +133,17 @@ def search_events(city: str, api_key: str, keyword: str | None = None, size: int
                 currency=currency,
             )
         )
+
+    if start_date or end_date:
+        # Ticketmaster's date filter is loose: multi-date listings (season
+        # passes, recurring classes) get included if their overall range
+        # merely overlaps the window, not just events strictly inside it.
+        # Filter client-side for a result set that actually matches.
+        results = [
+            r for r in results
+            if r.date != "Unknown date"
+            and (not start_date or r.date >= start_date)
+            and (not end_date or r.date <= end_date)
+        ]
 
     return results

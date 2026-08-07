@@ -59,7 +59,7 @@
     font: inherit;
     color: inherit;
   }
-  input[type="text"], input[type="number"], input[type="date"], input[type="password"] {
+  input[type="text"], input[type="number"], input[type="date"], input[type="month"], input[type="password"], select {
     width: 100%;
     padding: 10px 12px;
     border: 1px solid var(--border);
@@ -204,6 +204,24 @@
         <div class="field">
           <label for="tm-keyword">Narrow down (optional)</label>
           <input type="text" id="tm-keyword" placeholder="rock, artist name..." />
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="tm-date-mode">When</label>
+          <select id="tm-date-mode">
+            <option value="any">Any time</option>
+            <option value="month">Specific month</option>
+            <option value="date">Specific date</option>
+          </select>
+        </div>
+        <div class="field" id="tm-month-field" style="display:none;">
+          <label for="tm-month">Month</label>
+          <input type="month" id="tm-month" />
+        </div>
+        <div class="field" id="tm-date-field" style="display:none;">
+          <label for="tm-date">Date</label>
+          <input type="date" id="tm-date" />
         </div>
       </div>
       <button id="tm-search-btn">Browse Ticketmaster</button>
@@ -443,6 +461,27 @@
     return localStorage.getItem(TM_KEY_STORAGE);
   }
 
+  function pad2(n) {
+    return n < 10 ? "0" + n : "" + n;
+  }
+
+  function monthBounds(monthValue) {
+    var parts = monthValue.split("-");
+    var year = parseInt(parts[0], 10);
+    var month = parseInt(parts[1], 10);
+    var lastDay = new Date(year, month, 0).getDate();
+    return {
+      start: year + "-" + pad2(month) + "-01",
+      end: year + "-" + pad2(month) + "-" + pad2(lastDay)
+    };
+  }
+
+  document.getElementById("tm-date-mode").addEventListener("change", function () {
+    var mode = this.value;
+    document.getElementById("tm-month-field").style.display = mode === "month" ? "block" : "none";
+    document.getElementById("tm-date-field").style.display = mode === "date" ? "block" : "none";
+  });
+
   function renderSearchResults(results) {
     var container = document.getElementById("tm-results");
     container.innerHTML = "";
@@ -502,10 +541,34 @@
       return;
     }
     var keyword = document.getElementById("tm-keyword").value.trim();
+
+    var mode = document.getElementById("tm-date-mode").value;
+    var startDate = null;
+    var endDate = null;
+    if (mode === "month") {
+      var monthValue = document.getElementById("tm-month").value;
+      if (!monthValue) {
+        showError("Pick a month.");
+        return;
+      }
+      var bounds = monthBounds(monthValue);
+      startDate = bounds.start;
+      endDate = bounds.end;
+    } else if (mode === "date") {
+      var dateValue = document.getElementById("tm-date").value;
+      if (!dateValue) {
+        showError("Pick a date.");
+        return;
+      }
+      startDate = endDate = dateValue;
+    }
+
     var url = "https://app.ticketmaster.com/discovery/v2/events.json?apikey=" + encodeURIComponent(key) +
       "&city=" + encodeURIComponent(city) +
       "&classificationName=music&sort=date,asc&size=20" +
-      (keyword ? "&keyword=" + encodeURIComponent(keyword) : "");
+      (keyword ? "&keyword=" + encodeURIComponent(keyword) : "") +
+      (startDate ? "&startDateTime=" + startDate + "T00:00:00Z" : "") +
+      (endDate ? "&endDateTime=" + endDate + "T23:59:59Z" : "");
 
     document.getElementById("tm-results").innerHTML = '<div class="empty">Searching…</div>';
 
@@ -526,6 +589,18 @@
         var minPrice = prices.length ? Math.min.apply(null, prices) : null;
         return { artist: artist, venue: venue, city: city, date: date, minPrice: minPrice };
       });
+
+      if (startDate || endDate) {
+        // Ticketmaster's date filter is loose: multi-date listings (season
+        // passes, recurring classes) get included if their overall range
+        // merely overlaps the window. Filter client-side to match strictly.
+        results = results.filter(function (r) {
+          return r.date !== "Unknown date" &&
+            (!startDate || r.date >= startDate) &&
+            (!endDate || r.date <= endDate);
+        });
+      }
+
       renderSearchResults(results);
     }).catch(function (err) {
       document.getElementById("tm-results").innerHTML = "";
@@ -570,6 +645,8 @@
 
   var today = new Date().toISOString().slice(0, 10);
   document.getElementById("f-date").min = today;
+  document.getElementById("tm-date").min = today;
+  document.getElementById("tm-month").min = today.slice(0, 7);
 
   if (getToken()) {
     showMain();
