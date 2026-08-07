@@ -8,12 +8,6 @@
 # back to the DISCORD_WEBHOOK_URL environment variable / GitHub secret, so
 # most people only need to set that once and can leave this out entirely.
 
-- artist: "Chappell Roan"
-  city: "Los Angeles"
-  date: "2026-09-12"
-  max_price: 150.00
-  # discord_webhook_url: "https://discord.com/api/webhooks/..."   # optional override
-
 - artist: "AC/DC"
   city: "Toronto"
   date: "2026-09-16"
