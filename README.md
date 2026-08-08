@@ -40,9 +40,14 @@ you (and anyone you share a token with) can manage the watchlist from a
 phone or laptop browser without opening a terminal.
 
 - **Editing the watchlist**: sign in with a GitHub personal access token
-  (scoped to just this repo, Contents: read/write). The token is stored
-  only in your browser and talks straight to GitHub's API — it's never
-  sent anywhere else, including to me.
+  (scoped to just this repo, with **Contents: read/write** and
+  **Actions: read/write** — the latter powers the "Scan now" button
+  below). The token is stored only in your browser and talks straight to
+  GitHub's API — it's never sent anywhere else, including to me.
+- **Scan now**: triggers the same hourly GitHub Actions workflow on
+  demand instead of waiting for the next scheduled run. Shows live status
+  (triggering → running → complete) and refreshes the watchlist
+  automatically once it finishes, usually within 20-40 seconds.
 - **Current price per entry**: each watchlist card shows the lowest price
   found across sites on the last scan (e.g. "current $90 (Ticketmaster)"),
   in green when it's at or under your max. Entries not scanned yet show

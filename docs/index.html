@@ -199,7 +199,7 @@
     <ol>
       <li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a></li>
       <li>Under <strong>Repository access</strong>, choose <strong>Only select repositories</strong> and pick <code>ticket-price-monitor</code></li>
-      <li>Under <strong>Permissions → Repository permissions</strong>, set <strong>Contents</strong> to <strong>Read and write</strong></li>
+      <li>Under <strong>Permissions → Repository permissions</strong>, set <strong>Contents</strong> to <strong>Read and write</strong>, and <strong>Actions</strong> to <strong>Read and write</strong> (needed for the "Scan now" button)</li>
       <li>Generate the token and paste it below</li>
     </ol>
     <div class="field">
@@ -218,6 +218,11 @@
     <p class="sub">Concerts being tracked hourly. Changes save straight to GitHub.</p>
 
     <div class="error" id="error-box"></div>
+
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px;">
+      <button id="scan-now-btn">Scan now</button>
+      <span id="scan-status" style="font-size:13px; color:var(--text-secondary); display:none;"></span>
+    </div>
 
     <section>
       <div id="entry-list"></div>
@@ -309,6 +314,7 @@
   var BRANCH = "main";
   var PATH = "config/watchlist.yaml";
   var STATE_PATH = "state.json";
+  var WORKFLOW_FILE = "ticket_monitor.yml";
   var TOKEN_KEY = "ticket_watchlist_gh_token";
 
   var YAML_HEADER =
@@ -428,12 +434,95 @@
 
   function loadWatchlistAndState() {
     clearError();
-    Promise.all([fetchWatchlistData(), fetchPriceStateData()]).then(function () {
+    return Promise.all([fetchWatchlistData(), fetchPriceStateData()]).then(function () {
       renderEntries();
     }).catch(function (err) {
       showError(err.message);
     });
   }
+
+  function setScanStatus(msg) {
+    var el = document.getElementById("scan-status");
+    el.textContent = msg;
+    el.style.display = msg ? "inline" : "none";
+  }
+
+  function wait(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+
+  function pollScanRun(triggeredAt, attempt) {
+    if (attempt > 20) {
+      document.getElementById("scan-now-btn").disabled = false;
+      setScanStatus("");
+      showError("Scan is taking longer than expected — check the Actions tab on GitHub.");
+      return;
+    }
+    var runsUrl = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/actions/workflows/" + WORKFLOW_FILE + "/runs?event=workflow_dispatch&per_page=5";
+    return fetch(runsUrl, { headers: apiHeaders() }).then(function (res) {
+      if (!res.ok) throw new Error("Couldn't check scan status (" + res.status + ").");
+      return res.json();
+    }).then(function (data) {
+      var runs = data.workflow_runs || [];
+      var run = runs.find(function (r) { return new Date(r.created_at).getTime() >= triggeredAt - 5000; });
+
+      if (!run) {
+        return wait(3000).then(function () { return pollScanRun(triggeredAt, attempt + 1); });
+      }
+      if (run.status !== "completed") {
+        setScanStatus("Scan running…");
+        return wait(4000).then(function () { return pollScanRun(triggeredAt, attempt + 1); });
+      }
+
+      document.getElementById("scan-now-btn").disabled = false;
+      if (run.conclusion === "success") {
+        setScanStatus("Scan complete — refreshing…");
+        return loadWatchlistAndState().then(function () {
+          setScanStatus("Updated just now");
+          setTimeout(function () { setScanStatus(""); }, 3000);
+        });
+      }
+      setScanStatus("");
+      showError("Scan finished with an error (" + run.conclusion + "). Check the Actions tab on GitHub for details.");
+    }).catch(function (err) {
+      document.getElementById("scan-now-btn").disabled = false;
+      setScanStatus("");
+      showError(err.message);
+    });
+  }
+
+  function triggerScanNow() {
+    clearError();
+    var btn = document.getElementById("scan-now-btn");
+    btn.disabled = true;
+    setScanStatus("Triggering scan…");
+
+    var dispatchUrl = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/actions/workflows/" + WORKFLOW_FILE + "/dispatches";
+    var triggeredAt = Date.now();
+
+    fetch(dispatchUrl, {
+      method: "POST",
+      headers: Object.assign({ "Content-Type": "application/json" }, apiHeaders()),
+      body: JSON.stringify({ ref: BRANCH })
+    }).then(function (res) {
+      if (res.status === 401) throw new Error("That token was rejected.");
+      if (res.status === 403 || res.status === 404) {
+        throw new Error(
+          "Your token can't trigger a scan — it needs the Actions: Read and write permission " +
+          "(edit your existing token at github.com/settings/personal-access-tokens, or generate a new one)."
+        );
+      }
+      if (!res.ok) throw new Error("GitHub API error (" + res.status + ") triggering the scan.");
+      setScanStatus("Scan running…");
+      return pollScanRun(triggeredAt, 0);
+    }).catch(function (err) {
+      btn.disabled = false;
+      setScanStatus("");
+      showError(err.message);
+    });
+  }
+
+  document.getElementById("scan-now-btn").addEventListener("click", triggerScanNow);
 
   function renderEntries() {
     entryList.innerHTML = "";
